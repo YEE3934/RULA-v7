@@ -53,7 +53,7 @@ from PIL import Image, ImageDraw, ImageFont
 # Complexity 2 asks MediaPipe to download pose_landmark_heavy.tflite into site-packages,
 # which is typically read-only on hosted deployments.
 POSE_MODEL_COMPLEXITY = 1
-APP_BUILD_TAG = "RULA_V7_1_TEMPORAL_FIX_2026-10-26"
+APP_BUILD_TAG = "RULA_V7_2_DEPLOY_VERIFIED_2026-10-26"
 
 # ==================== 【沿用 v6 RULA 查表矩陣：仍需標準工作表逐格核對】 ====================
 TABLE_A = {
@@ -1187,6 +1187,14 @@ def add_hand_temporal_notes(df, side):
 st.set_page_config(page_title="RULA 三視角人因工程 AI 評估系統", layout="wide")
 st.title("RULA 姿勢危害評估系統")
 st.caption(f"部署版本：{APP_BUILD_TAG}｜執行檔：{os.path.basename(__file__)}｜MediaPipe Pose complexity={POSE_MODEL_COMPLEXITY}")
+
+# 啟動自檢：顯示實際部署版本並在分析前確認時序檢查函式已可呼叫。
+# Streamlit 會在每次互動時由上到下重跑，因此函式必須在此之前宣告。
+if not callable(globals().get("add_hand_temporal_notes")):
+    st.error("部署自檢失敗：add_hand_temporal_notes 未完成定義。請檢查 GitHub 上傳的 222.py 是否完整。")
+    st.stop()
+st.caption("✅ v7.2 部署自檢通過：Hand 時序分析函式已載入。")
+
 st.markdown(
     "> **系統說明**：本工具以 MediaPipe Pose 關鍵點估算部分姿勢角度，遇到關鍵點可見度不足時會嘗試原圖、對比增強及放大圖；仍不可靠的樣本會略過。RULA 部分影像補正可選擇自動判讀；手腕扭轉、腿足支撐、聳肩、上臂支撐及扭轉等項目仍需人工確認，輸出仍須由受訓評估者複核，不應單獨作為醫療或職安決策依據。"
 )
