@@ -1,3 +1,20 @@
+# RULA v7.1 — NameError 分析完成時修正版
+
+## 這次修正的問題
+
+原 v7 的 `add_hand_temporal_notes()` 放在 Streamlit 分析流程後面；分析按鈕執行到 `df_result = add_hand_temporal_notes(...)` 時，Python 尚未執行函式定義，產生 `NameError`。
+
+**v7.1 將完整函式搬到分析流程之前**，保留其原有「Hand 孤立時序尖峰（僅供研究）」判斷，不改動 Pose/Hand 幾何、RULA 查表或結果分數。雙側與單側模式都會共用先宣告的函式。已加入回歸測試防止相同問題再發生。
+
+## 如何部署
+
+1. 將本資料夾內 `222.py` 覆蓋 GitHub 儲存庫根目錄的 `222.py`，不要僅複製程式片段。
+2. `requirements.txt`、`packages.txt` 仍沿用 v7（已隨包附上），**不需增加套件**。
+3. 重新部署，檢查網站標記 `RULA_V7_1_TEMPORAL_FIX_2026-10-26`。
+4. 以相同影片測試「單側」及如有需要「左右側同步」的完整分析與 ZIP 下載。
+
+> MediaPipe 日誌中的 GPU unavailable、feedback tensors warning 通常不是這次 NameError 的原因。
+
 # RULA v7 — 精簡介面與手腕幾何品質實驗版
 
 以已部署成功的 v6 Pose + Hand 版本修改，**不需要重新建立 RULA 系統**。
