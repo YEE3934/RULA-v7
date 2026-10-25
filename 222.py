@@ -53,7 +53,7 @@ from PIL import Image, ImageDraw, ImageFont
 # Complexity 2 asks MediaPipe to download pose_landmark_heavy.tflite into site-packages,
 # which is typically read-only on hosted deployments.
 POSE_MODEL_COMPLEXITY = 1
-APP_BUILD_TAG = "RULA_V7_WRIST_QC_TABBED_2026-10-25"
+APP_BUILD_TAG = "RULA_V7_1_TEMPORAL_FIX_2026-10-26"
 
 # ==================== 【沿用 v6 RULA 查表矩陣：仍需標準工作表逐格核對】 ====================
 TABLE_A = {
@@ -1151,6 +1151,38 @@ def analyze_side_camera(frame, pose_model, target_side, front_mods, m_val, f_val
         return False, None, frame_work, 0.0
 
 
+# ==================== 【後處理：Hand 角度時序孤立尖峰檢查】 ====================
+# 必須先定義，Streamlit 執行分析時才能正常呼叫。
+# 此函式僅新增診斷欄位，不會修改 RULA 分數。
+def add_hand_temporal_notes(df, side):
+    """Post-hoc diagnostic only. Real fast movements are NOT automatically incorrect.
+
+    Only mark a central sample when its two sampled neighbors agree closely, while
+    the central Hand2D reading is distant from both. Does not alter RULA scoring.
+    """
+    if df is None or df.empty:
+        return df
+    out = df.copy().sort_values("時間(秒)")
+    prefix = "右手" if side == "右手側" else "左手"
+    column = f"{prefix}PoseHand實驗手腕角度"
+    if column not in out:
+        return out
+    values = pd.to_numeric(out[column], errors="coerce").to_numpy(dtype=float)
+    sample_ids = pd.to_numeric(out["樣本編號"], errors="coerce").to_numpy(dtype=float)
+    flags = np.zeros(len(out), dtype=bool)
+    for i in range(1,len(out)-1):
+        if not (np.all(np.isfinite(values[i-1:i+2])) and
+                sample_ids[i]-sample_ids[i-1] == 1 and
+                sample_ids[i+1]-sample_ids[i] == 1):
+            continue
+        if (abs(values[i-1]-values[i+1]) <= 15 and
+            abs(values[i]-values[i-1]) >= 35 and
+            abs(values[i]-values[i+1]) >= 35):
+            flags[i] = True
+    out["Hand時序孤立尖峰（僅供研究）"] = flags
+    return out.sort_index()
+
+
 # ==================== 【Streamlit 網頁應用介面】 ====================
 st.set_page_config(page_title="RULA 三視角人因工程 AI 評估系統", layout="wide")
 st.title("RULA 姿勢危害評估系統")
@@ -1794,33 +1826,6 @@ if st.button("🚀 啟動全關節生物力學分析", type="primary", use_conta
         except Exception:
             logging.exception("Hand model close failed")
 
-def add_hand_temporal_notes(df, side):
-    """Post-hoc diagnostic only. Real fast movements are NOT automatically incorrect.
-
-    Only mark a central sample when its two sampled neighbors agree closely, while
-    the central Hand2D reading is distant from both. Does not alter RULA scoring.
-    """
-    if df is None or df.empty:
-        return df
-    out = df.copy().sort_values("時間(秒)")
-    prefix = "右手" if side == "右手側" else "左手"
-    column = f"{prefix}PoseHand實驗手腕角度"
-    if column not in out:
-        return out
-    values = pd.to_numeric(out[column], errors="coerce").to_numpy(dtype=float)
-    sample_ids = pd.to_numeric(out["樣本編號"], errors="coerce").to_numpy(dtype=float)
-    flags = np.zeros(len(out), dtype=bool)
-    for i in range(1,len(out)-1):
-        if not (np.all(np.isfinite(values[i-1:i+2])) and
-                sample_ids[i]-sample_ids[i-1] == 1 and
-                sample_ids[i+1]-sample_ids[i] == 1):
-            continue
-        if (abs(values[i-1]-values[i+1]) <= 15 and
-            abs(values[i]-values[i-1]) >= 35 and
-            abs(values[i]-values[i+1]) >= 35):
-            flags[i] = True
-    out["Hand時序孤立尖峰（僅供研究）"] = flags
-    return out.sort_index()
 
 
 # ==================== 【V4：時間異常檢測／逐影格人工複核】 ====================
