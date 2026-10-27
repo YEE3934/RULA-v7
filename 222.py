@@ -53,7 +53,7 @@ from PIL import Image, ImageDraw, ImageFont
 # Complexity 2 asks MediaPipe to download pose_landmark_heavy.tflite into site-packages,
 # which is typically read-only on hosted deployments.
 POSE_MODEL_COMPLEXITY = 1
-APP_BUILD_TAG = "RULA_V9_1_SETUP_WIZARD_RESULTS_TABS_2026-10-28"
+APP_BUILD_TAG = "RULA_V9_2_IMAGE_SYNC_WRIST_QC_2026-10-28"
 
 # ==================== 【沿用 v6 RULA 查表矩陣：仍需標準工作表逐格核對】 ====================
 TABLE_A = {
@@ -1190,6 +1190,80 @@ def add_hand_temporal_notes(df, side):
 
 
 
+# ==================== 【V9.2：無裁切的內嵌圖片顯示】 ====================
+def v92_image_html(image_data, caption="", encoded=False, max_width="100%"):
+    """Data-URI JPEG image with natural aspect ratio; unlike fixed-height iframe, never crops bottom."""
+    import html as html_lib
+    if not image_data:
+        return '<div>（無法取得圖片）</div>'
+    payload = image_data if encoded else base64.b64encode(image_data).decode('ascii')
+    width_css = '100%' if max_width == '100%' else str(max_width)
+    return (f'<div style="text-align:center;width:100%;color:inherit">'
+            f'<img alt="RULA影格" src="data:image/jpeg;base64,{payload}" '
+            f'style="display:block;width:{width_css};max-width:100%;height:auto;object-fit:contain;'
+            f'border-radius:8px;margin:0 auto" />'
+            f'<div style="font-size:.85rem;margin:7px 0;opacity:.85">{html_lib.escape(str(caption))}</div>'
+            '</div>')
+
+
+def v92_show_image(image_data, caption="", encoded=False):
+    """Avoid both Streamlit media URLs and components.html iframe clipping."""
+    st.markdown(v92_image_html(image_data, caption=caption, encoded=encoded),
+                unsafe_allow_html=True)
+
+
+def v92_thumbnail_b64(image_b64, max_width=400):
+    """Small preview without changing saved full-resolution JPEG."""
+    try:
+        original = cv2.imdecode(np.frombuffer(base64.b64decode(image_b64), dtype=np.uint8),
+                                cv2.IMREAD_COLOR)
+        if original is None:
+            return image_b64
+        h, w = original.shape[:2]
+        if w > max_width:
+            original = cv2.resize(original, (int(max_width), max(1, round(h * max_width / w))),
+                                  interpolation=cv2.INTER_AREA)
+        ok, out = cv2.imencode('.jpg', original, [int(cv2.IMWRITE_JPEG_QUALITY), 75])
+        return base64.b64encode(out).decode('ascii') if ok else image_b64
+    except Exception:
+        return image_b64
+
+
+def v92_pose_wrist_qc(df, side):
+    """Conservative POST-HOC Pose wrist warnings, no score/value modifications.
+
+    Do not conflate pose 2D-vs-3D disagreement or real rapid motion with errors.
+    An isolated spike requires contiguous samples with similar neighbors.
+    """
+    if df is None or df.empty:
+        return df
+    out = df.copy().sort_values('樣本編號')
+    prefix = '右手' if side == '右手側' else '左手'
+    angle_col = f'{prefix}Pose舊版手腕角度'
+    if angle_col not in out.columns:
+        return out
+    angles = pd.to_numeric(out[angle_col], errors='coerce').to_numpy(dtype=float)
+    ids = pd.to_numeric(out['樣本編號'], errors='coerce').to_numpy(dtype=float)
+    notes = [''] * len(out)
+    for i, angle in enumerate(angles):
+        reasons = []
+        if not np.isfinite(angle):
+            reasons.append('Pose 手腕角無效')
+        elif angle >= 65:
+            reasons.append(f'手腕角度達 {angle:.1f}°，請查看手掌遮擋')
+        if 0 < i < len(out)-1 and np.isfinite(angle):
+            left, right = angles[i-1], angles[i+1]
+            if (np.isfinite(left) and np.isfinite(right)
+                and ids[i]-ids[i-1] == 1 and ids[i+1]-ids[i] == 1
+                and abs(left-right) <= 15
+                and abs(angle-left) >= 35 and abs(angle-right) >= 35):
+                reasons.append('Pose 手腕孤立尖峰（非直接判定錯誤）')
+        notes[i] = '；'.join(reasons)
+    out['Pose手腕品質警示'] = notes
+    out['Pose手腕需複核（保守）'] = [bool(x) for x in notes]
+    return out.sort_index()
+
+
 # ==================== 【V8：雙視角頸部品質分析，暫不改動正式 RULA 分數】 ====================
 def v8_neck_candidate(landmarks, width, height):
     """Returns an experimental 2D neck-to-torso proxy; NOT a calibrated anatomical angle."""
@@ -1356,10 +1430,10 @@ def v8_show_rejected_center():
         a,b=st.columns(2)
         with a:
             st.markdown('**未渲染原始照片**')
-            components.html(v8_encode_html_image(img['raw']),height=590,scrolling=True)
+            v92_show_image(img['raw'])
         with b:
             st.markdown('**系統重新偵測（可能只有局部）**')
-            components.html(v8_encode_html_image(img['overlay']),height=590,scrolling=True)
+            v92_show_image(img['overlay'])
         st.caption(f"有效繪製點：{img['points']}/33；偵測品質代理值：{img['quality']:.2f}；{img['note']}")
     st.warning('拒絕原因：'+str(item['拒絕原因']))
     key=f"{item['樣本編號']}_{item['評估側']}"
@@ -1653,6 +1727,12 @@ def v9_sync_input_changed(name):
     st.session_state.v9_confirmed = False
 
 
+def v92_trim_changed():
+    selected = tuple(float(x) for x in st.session_state['_v92_trim_range'])
+    st.session_state.v8_values['v92_analysis_window'] = selected
+    st.session_state.v9_confirmed = False
+
+
 def v9_nudge(name, step):
     key = '_v9_anchor_'+name
     maximum = float(st.session_state.get('v9_max_'+name, 0.0))
@@ -1695,14 +1775,24 @@ def v9_sync_report(metadata, anchors, cameras, begin, end, mode):
     } for cam in cameras])
 
 
-def v9_make_sample_times(n, metadata, anchors, cameras):
+def v9_make_sample_times(n, metadata, anchors, cameras, clip_range=None):
     begin, end = v9_common_window(metadata, anchors, cameras)
+    if clip_range is not None:
+        selected_begin, selected_end = map(float, clip_range)
+        if not (np.isfinite(selected_begin) and np.isfinite(selected_end)):
+            raise ValueError('分析起訖時間不是有效數字')
+        begin, end = max(begin, selected_begin), min(end, selected_end)
+        if end <= begin + 0.02:
+            raise ValueError('選取的共同分析區間太短，請回到時間同步頁調整')
     return np.linspace(begin, end, int(n)), begin, end
 
 
-def v9_sample_row(shared_time, metadata, anchors, cameras, sample_id):
-    result = {'樣本編號': int(sample_id), '時間(秒)': round(float(shared_time), 3),
-              '共同時間(秒)': round(float(shared_time), 3)}
+def v9_sample_row(shared_time, metadata, anchors, cameras, sample_id, analysis_start=0.0):
+    elapsed = float(shared_time) - float(analysis_start)
+    result = {'樣本編號': int(sample_id), '時間(秒)': round(elapsed, 3),
+              '分析經過時間(秒)': round(elapsed, 3),
+              '共同時間(秒)': round(float(shared_time), 3),
+              '同步事件相對時間(秒)': round(float(shared_time), 3)}
     for cam in cameras:
         absolute = v9_camera_seconds(shared_time, anchors, cam)
         idx = v9_frame_index(shared_time, anchors, cam, metadata)
@@ -1722,7 +1812,7 @@ def v9_decorate_records(rows, time_rows, columns=None):
 
 # ==================== 【Streamlit 網頁應用介面】 ====================
 st.set_page_config(page_title="RULA 三視角人因工程 AI 評估系統", layout="wide")
-st.title("RULA v9.1 智慧姿勢評估｜同步分析")
+st.title("RULA v9.2 智慧姿勢評估｜同步分析")
 st.caption(f"部署版本：{APP_BUILD_TAG}｜執行檔：{os.path.basename(__file__)}｜MediaPipe Pose complexity={POSE_MODEL_COMPLEXITY}")
 
 # 啟動自檢：顯示實際部署版本並在分析前確認時序檢查函式已可呼叫。
@@ -1730,7 +1820,7 @@ st.caption(f"部署版本：{APP_BUILD_TAG}｜執行檔：{os.path.basename(__fi
 if not callable(globals().get("add_hand_temporal_notes")):
     st.error("部署自檢失敗：add_hand_temporal_notes 未完成定義。請檢查 GitHub 上傳的 222.py 是否完整。")
     st.stop()
-st.caption("✅ RULA v9.1：六步驟設定＋分析結果分頁；三視角同步與原有分析功能已載入。")
+st.caption("✅ v9.2：修復同步預覽與縮圖顯示；新增分析區間裁切、Pose 手腕離群值診斷；保留原始 RULA 分數。")
 
 st.markdown(
     "> **系統說明**：本工具以 MediaPipe Pose 關鍵點估算部分姿勢角度，遇到關鍵點可見度不足時會嘗試原圖、對比增強及放大圖；仍不可靠的樣本會略過。RULA 部分影像補正可選擇自動判讀；手腕扭轉、腿足支撐、聳肩、上臂支撐及扭轉等項目仍需人工確認，輸出仍須由受訓評估者複核，不應單獨作為醫療或職安決策依據。"
@@ -2016,7 +2106,7 @@ elif page == 1:
                     anchors_now[cam]=val
                     picture=v9_preview_jpeg(upload_map[cam].getvalue(),round(val,2))
                     if picture is not None:
-                        st.image(picture,caption=f'{title}｜{val:.3f} 秒',use_container_width=True)
+                        v92_show_image(picture, f'{title}｜{val:.3f} 秒')
                     else:
                         st.error('預覽影格讀取失敗，請確認影片編碼')
                     x,y=st.columns(2)
@@ -2029,7 +2119,39 @@ elif page == 1:
             try:
                 begin,end=v9_common_window(meta,anchors_now,active_cams)
                 st.success(f'校正後共同可分析範圍：{begin:+.2f} ～ {end:+.2f} 秒（共 {end-begin:.2f} 秒）')
-                st.caption('共同時間 0 秒是選定的動作事件；負秒代表事件之前。所有鏡頭的採樣時間會各自加上這裡的偏移。')
+                st.caption('共同時間 0 秒是選定的動作事件；負秒代表事件之前。各影片採樣會自動換算。')
+                st.markdown('#### C. 選擇真正要評估的動作區間')
+                st.caption('照片若只看到天花板、受測者還沒進入畫面，請縮短區間；不必把整段影片都評分。')
+                trim_sig = (tuple(round(float(anchors_now[c]),3) for c in active_cams),
+                            round(begin,3), round(end,3))
+                if st.session_state.get('_v92_trim_signature') != trim_sig:
+                    st.session_state['_v92_trim_signature'] = trim_sig
+                    st.session_state['_v92_trim_range'] = (float(begin),float(end))
+                    st.session_state.v8_values['v92_analysis_window'] = (float(begin),float(end))
+                    st.session_state.v9_confirmed = False
+                chosen_range = st.slider('共同時間軸：動作分析起點～終點（秒）',
+                    min_value=float(begin), max_value=float(end),
+                    value=(float(begin),float(end)),
+                    step=min(0.1, max(0.001, (end-begin)/20)),
+                    key='_v92_trim_range',on_change=v92_trim_changed)
+                st.session_state.v8_values['v92_analysis_window'] = tuple(map(float,chosen_range))
+                st.info(f'本次將只分析共同時間 {chosen_range[0]:+.2f} ～ {chosen_range[1]:+.2f} 秒'
+                        f'，共 {chosen_range[1]-chosen_range[0]:.2f} 秒。'
+                        '輸出圖表的時間從分析第 0 秒開始；ZIP 仍保存各鏡頭原始時間。')
+                if st.checkbox('查看分析起點的三鏡頭畫面（確認受測者已進入鏡頭）',
+                               key='v92_preview_trim_start', value=False):
+                    preview_cols=st.columns(len(active_cams))
+                    for pcol,pcam in zip(preview_cols,active_cams):
+                        with pcol:
+                            source_second=float(anchors_now[pcam])+float(chosen_range[0])
+                            shot=v9_preview_jpeg(upload_map[pcam].getvalue(),round(source_second,2))
+                            if shot:
+                                v92_show_image(shot,f'{pcam}｜影片 {source_second:.2f} 秒')
+                            else:
+                                st.warning(f'{pcam} 起點預覽失敗')
+                if max(anchors_now.values()) > 0.7 * max(m['last_time'] for m in meta.values()):
+                    st.warning('目前同步錨點靠近影片尾端：完整重疊區間將包含很多事件之前的畫面。'
+                               '如果前段沒有實際作業，請使用上方滑桿裁切。')
                 st.button('✅ 三畫面已對到同一動作，確認同步', key='v9_confirm',
                           on_click=v9_confirm_sync,args=('預覽確認',),type='primary',use_container_width=True)
                 if st.session_state.v9_confirmed and st.session_state.v9_confirmed_signature==sig:
@@ -2227,7 +2349,8 @@ if page == 5 and st.button("🚀 啟動全關節生物力學分析", type="prima
                        'Left':v9_frame_meta(fps_left,count_left)}
             try:
                 sample_times, sync_start, sync_end = v9_make_sample_times(
-                    num_samples,sync_meta,sync_anchors,active_cams)
+                    num_samples,sync_meta,sync_anchors,active_cams,
+                    clip_range=st.session_state.v8_values.get('v92_analysis_window'))
             except ValueError as exc:
                 for c in [cap_front,cap_right,cap_left]: c.release()
                 for p in [t_front.name,t_right.name,t_left.name]:
@@ -2236,7 +2359,7 @@ if page == 5 and st.button("🚀 啟動全關節生物力學分析", type="prima
                 st.error('影片無法建立同步區間：'+str(exc))
                 st.stop()
             sync_report=v9_sync_report(sync_meta,sync_anchors,active_cams,sync_start,sync_end,sync_mode)
-            sync_samples={i+1:v9_sample_row(t,sync_meta,sync_anchors,active_cams,i+1)
+            sync_samples={i+1:v9_sample_row(t,sync_meta,sync_anchors,active_cams,i+1,analysis_start=sync_start)
                           for i,t in enumerate(sample_times)}
 
             combined_records = []
@@ -2265,7 +2388,7 @@ if page == 5 and st.button("🚀 啟動全關節生物力學分析", type="prima
             ) as pose:
                 total_samples = len(sample_times)
                 for i, sample_time in enumerate(sample_times):
-                    sec = round(float(sample_time), 2)
+                    sec = round(float(sample_time - sync_start), 2)
                     idx_front = sync_samples[i+1]['Front影格索引']
                     idx_right = sync_samples[i+1]['Right影格索引']
                     idx_left = sync_samples[i+1]['Left影格索引']
@@ -2449,15 +2572,16 @@ if page == 5 and st.button("🚀 啟動全關節生物力學分析", type="prima
             v9_decorate_records(skip_diagnostics,sync_samples)
             v9_decorate_records(rejected_rows,sync_samples)
             df_comb = pd.DataFrame(combined_records) if combined_records else pd.DataFrame()
-            df_r = add_hand_temporal_notes(pd.DataFrame(right_only_records), "右手側") if right_only_records else pd.DataFrame()
-            df_l = add_hand_temporal_notes(pd.DataFrame(left_only_records), "左手側") if left_only_records else pd.DataFrame()
+            df_r = v92_pose_wrist_qc(add_hand_temporal_notes(pd.DataFrame(right_only_records), "右手側"), "右手側") if right_only_records else pd.DataFrame()
+            df_l = v92_pose_wrist_qc(add_hand_temporal_notes(pd.DataFrame(left_only_records), "左手側"), "左手側") if left_only_records else pd.DataFrame()
 
             zip_buffer = io.BytesIO()
             with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zf:
                 zf.writestr('Synchronization/Synchronization_Report.csv',sync_report.to_csv(index=False).encode('utf-8-sig'))
                 zf.writestr('Synchronization/Frame_Time_Map.csv',pd.DataFrame(sync_samples.values()).to_csv(index=False).encode('utf-8-sig'))
                 zf.writestr('Synchronization/Settings.json',json.dumps({'mode':sync_mode,'anchors':sync_anchors,
-                    'common_start':sync_start,'common_end':sync_end,'cameras':active_cams},
+                    'common_start':sync_start,'common_end':sync_end,'cameras':active_cams,
+                    'time_display':'analysis_elapsed_from_zero','source_timestamp_mapping':'Frame_Time_Map.csv'},
                     ensure_ascii=False,indent=2).encode('utf-8'))
                 if not df_comb.empty:
                     zf.writestr("RULA_左右同步彙整報表.csv", df_comb.to_csv(index=False).encode('utf-8-sig'))
@@ -2529,7 +2653,8 @@ if page == 5 and st.button("🚀 啟動全關節生物力學分析", type="prima
                        side_camera:v9_frame_meta(fps_side,count_side)}
             try:
                 sample_times,sync_start,sync_end=v9_make_sample_times(
-                    num_samples,sync_meta,sync_anchors,active_cams)
+                    num_samples,sync_meta,sync_anchors,active_cams,
+                    clip_range=st.session_state.v8_values.get('v92_analysis_window'))
             except ValueError as exc:
                 cap_front.release();cap_side.release()
                 for p in [t_front.name,t_side.name]:
@@ -2538,7 +2663,7 @@ if page == 5 and st.button("🚀 啟動全關節生物力學分析", type="prima
                 st.error('影片無法建立同步區間：'+str(exc))
                 st.stop()
             sync_report=v9_sync_report(sync_meta,sync_anchors,active_cams,sync_start,sync_end,sync_mode)
-            sync_samples={i+1:v9_sample_row(t,sync_meta,sync_anchors,active_cams,i+1)
+            sync_samples={i+1:v9_sample_row(t,sync_meta,sync_anchors,active_cams,i+1,analysis_start=sync_start)
                           for i,t in enumerate(sample_times)}
 
             records = []
@@ -2562,7 +2687,7 @@ if page == 5 and st.button("🚀 啟動全關節生物力學分析", type="prima
             ) as pose:
                 total_samples = len(sample_times)
                 for i, sample_time in enumerate(sample_times):
-                    sec = round(float(sample_time), 2)
+                    sec = round(float(sample_time - sync_start), 2)
                     idx_front = sync_samples[i+1]['Front影格索引']
                     idx_side = sync_samples[i+1][side_camera+'影格索引']
                     cap_front.set(cv2.CAP_PROP_POS_FRAMES, idx_front)
@@ -2645,14 +2770,15 @@ if page == 5 and st.button("🚀 啟動全關節生物力學分析", type="prima
             v9_decorate_records(records,sync_samples)
             v9_decorate_records(skip_diagnostics,sync_samples)
             v9_decorate_records(rejected_rows,sync_samples)
-            df_result = add_hand_temporal_notes(pd.DataFrame(records), target_side) if records else pd.DataFrame()
+            df_result = v92_pose_wrist_qc(add_hand_temporal_notes(pd.DataFrame(records), target_side), target_side) if records else pd.DataFrame()
             
             zip_buffer = io.BytesIO()
             with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zf:
                 zf.writestr('Synchronization/Synchronization_Report.csv',sync_report.to_csv(index=False).encode('utf-8-sig'))
                 zf.writestr('Synchronization/Frame_Time_Map.csv',pd.DataFrame(sync_samples.values()).to_csv(index=False).encode('utf-8-sig'))
                 zf.writestr('Synchronization/Settings.json',json.dumps({'mode':sync_mode,'anchors':sync_anchors,
-                    'common_start':sync_start,'common_end':sync_end,'cameras':active_cams},
+                    'common_start':sync_start,'common_end':sync_end,'cameras':active_cams,
+                    'time_display':'analysis_elapsed_from_zero','source_timestamp_mapping':'Frame_Time_Map.csv'},
                     ensure_ascii=False,indent=2).encode('utf-8'))
                 if not df_result.empty:
                     zf.writestr("RULA_Report.csv", df_result.to_csv(index=False).encode('utf-8-sig'))
@@ -2829,14 +2955,7 @@ def v4_show_review_center():
                     # /media 圖片路徑在部分 Streamlit Cloud/瀏覽器環境無法存取；
                     # 直接在 iframe 用 data URI 內嵌，不向 /media 發請求。
                     import html as html_lib
-                    components.html(
-                        f'<div style="text-align:center;color:#ddd">'
-                        f'<img src="data:image/jpeg;base64,{payload}" '
-                        f'style="display:block;max-width:100%;max-height:700px;margin:auto;border-radius:8px" />'
-                        f'<p>{html_lib.escape(caption)}</p></div>',
-                        height=760,
-                        scrolling=True,
-                    )
+                    v92_show_image(payload, caption, encoded=True)
                     photo_found = True
                     break
             if not photo_found:
@@ -2968,12 +3087,13 @@ def v6_show_hand_comparison():
     if pair:
         import html as html_lib
         before_b64, after_b64 = pair
-        components.html(
-            '<div style="display:flex;flex-wrap:wrap;gap:10px;background:#141c29;padding:8px;border-radius:10px;color:white;font-family:sans-serif">'
-            '<div style="flex:1;min-width:220px"><h4>原始 Pose v5</h4><img src="data:image/jpeg;base64,'+before_b64+'" style="width:100%;object-fit:contain;max-height:610px"></div>'
-            '<div style="flex:1;min-width:220px"><h4>Pose + Hand 21 點</h4><img src="data:image/jpeg;base64,'+after_b64+'" style="width:100%;object-fit:contain;max-height:610px"></div>'
-            '</div>', height=760, scrolling=True,
-        )
+        col_pose, col_hand = st.columns(2)
+        with col_pose:
+            st.markdown('**原始 Pose**')
+            v92_show_image(before_b64, encoded=True)
+        with col_hand:
+            st.markdown('**Pose + Hand 21 點**')
+            v92_show_image(after_b64, encoded=True)
     else:
         st.warning("找不到這個樣本的比較照片；請檢查 ZIP 的 Hand_Comparison 資料夾。")
     table_cols = ["樣本編號", "時間(秒)", pose2d_col, pose3d_col, old_col, new_col, diff_col, quality_col,
@@ -2983,6 +3103,9 @@ def v6_show_hand_comparison():
     st.dataframe(df[table_cols], use_container_width=True, hide_index=True)
     graph = df[["時間(秒)", pose2d_col, old_col, new_col]].set_index("時間(秒)")
     st.line_chart(graph, x_label="影片時間（秒）", y_label="手腕角度代理值（度）")
+    flagged_count = int(df['Pose手腕需複核（保守）'].fillna(False).sum()) if 'Pose手腕需複核（保守）' in df.columns else 0
+    st.info(f'Pose 手腕保守品質診斷：{flagged_count} 筆可能存在遮擋或孤立尖峰。'
+            '請檢視原始影格；此項只提醒，不會自動改動 RULA 分數。')
     st.caption("公平比較以 Pose 2D 與 Hand 2D 為主；Pose 混合保留供回歸測試。角度差異變小不等於真值更準。")
 
 # ==================== 【V9.1：結果採按需載入的真正分頁】 ====================
@@ -3055,15 +3178,14 @@ if st.session_state.v9_screen == 'results':
                     idx=st.selectbox('選取影格',range(len(images)),format_func=lambda i:images[i][0],key='v8_gallery_select')
                     import html as html_lib
                     cap,payload=images[idx]
-                    components.html(f'<div style="text-align:center"><img src="data:image/jpeg;base64,{payload}" style="max-width:100%;max-height:740px;border-radius:8px"/><p>{html_lib.escape(cap)}</p></div>',height=780,scrolling=True)
+                    v92_show_image(payload, cap, encoded=True)
                     if st.checkbox('展開所有縮圖（耗用較多記憶體）',key='v8_all_photo_thumbs'):
                         cols=st.columns(3)
                         for i,(caption,payload) in enumerate(images):
                             with cols[i%3]:
-                                components.html(f'<img src="data:image/jpeg;base64,{payload}" style="width:100%"/>',height=240)
-                                st.caption(caption)
+                                v92_show_image(v92_thumbnail_b64(payload), caption, encoded=True)
                 else:
-                    st.info('沒有可顯示的有效樣本照片。剔除樣本請到第 7 步檢查。')
+                    st.info('沒有可顯示的有效樣本照片。剔除樣本請到「🧩 剔除樣本」分頁檢查。')
         if tab_reports.open:
             with tab_reports:
                 st.subheader('完整報表與下載')
