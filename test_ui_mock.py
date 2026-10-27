@@ -99,7 +99,7 @@ for current_page in [0,1,2,3,4,5]:
   exec(compile((ROOT/'222.py').read_text('utf-8'),str(ROOT/'222.py'),'exec'),env)
  except Exception as e:
   raise AssertionError(f'Streamlit mock page {current_page} failed: {type(e).__name__}: {e}') from e
- print('PASS: v9.1 mock Streamlit setup step',current_page)
+ print('PASS: v9.2 mock Streamlit setup step',current_page)
 
 # Verify completed analysis uses independent result tabs and preserves setup state.
 def fake_side(prefix):

@@ -120,7 +120,7 @@ with zipfile.ZipFile(io.BytesIO(),mode='w') as zf:
 
 # Major regression checks
 assert source_text.index('def add_hand_temporal_notes(')<source_text.index('df_comb = pd.DataFrame(combined_records)')
-assert 'RULA_V9_1_SETUP_WIZARD_RESULTS_TABS' in source_text
+assert 'RULA_V9_2_IMAGE_SYNC_WRIST_QC' in source_text
 assert 'v9_confirmed_signature' in source_text
 assert 'v9_make_sample_times(' in source_text
 assert '同步事件出現時間(秒)' in source_text
