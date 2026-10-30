@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="zh-Hant"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<style>
+:root {color-scheme:dark;--bg:#151a22;--muted:#a2adbb;--line:#3a4756;--accent:#35a6f5;--active:#207cbf;--ink:#eff3f8;}
+*{box-sizing:border-box}body{margin:0;background:transparent;color:var(--ink);font:14px/1.48 system-ui,-apple-system,'Segoe UI','Noto Sans TC',sans-serif}
+.wrap{background:#171b23;border:1px solid #38424e;border-radius:12px;padding:14px 15px 16px;max-width:1100px;margin:auto}
+.top{display:flex;flex-wrap:wrap;justify-content:space-between;gap:8px;margin-bottom:9px;align-items:center}
+h3{margin:0;font-size:16px;font-weight:700}.note{color:var(--muted);font-size:12px}.video-container{display:flex;justify-content:center;background:#0d1117;border-radius:9px;overflow:hidden;min-height:160px;position:relative}
+video{display:block;width:100%;max-width:800px;max-height:320px;object-fit:contain;background:#0b0e14}.still{display:none;max-height:300px;width:100%;object-fit:contain}
+.video-fallback{padding:18px;color:var(--muted);text-align:center;line-height:1.6}
+.controls{display:flex;align-items:center;justify-content:space-between;margin-top:10px;gap:9px;flex-wrap:wrap}
+button{font:inherit;border-radius:7px;border:1px solid #546376;padding:6px 10px;background:#222b37;color:var(--ink);cursor:pointer;min-height:34px}
+button:hover{background:#304156}button:disabled{opacity:.45;cursor:not-allowed}button.primary{background:#126fac;border-color:#299bde;font-weight:700}button.danger{color:#ffb1ad;border-color:#844d50}button.ghost{background:transparent}
+.buttons{display:flex;flex-wrap:wrap;gap:7px}.time{color:#d3ddea;font-variant-numeric:tabular-nums;font-weight:600}
+.strip{position:relative;display:flex;height:62px;overflow:hidden;border-radius:7px;border:1px solid #3a4554;background:#111827;user-select:none;margin-top:9px;touch-action:pan-y;cursor:crosshair}
+.strip img{width:0;flex:1;min-width:0;height:100%;object-fit:cover;pointer-events:none;border-right:1px solid #111}
+.track{position:relative;margin-top:4px;height:43px;background:#0e1620;border-radius:7px;border:1px solid #3a4754;touch-action:none;cursor:crosshair}
+.segment{position:absolute;top:7px;height:28px;border:1px solid rgba(173,219,255,.75);background:rgba(38,151,232,.42);border-radius:5px;cursor:grab;touch-action:none;min-width:3px}
+.segment.selected{background:rgba(29,147,234,.70);outline:1px solid #c5e5ff;z-index:4}
+.handle{position:absolute;top:-5px;width:12px;height:36px;border-radius:5px;background:#f3f9ff;border:2px solid #2874b6;cursor:ew-resize;touch-action:none;box-shadow:0 0 0 1px #1b2430}
+.handle.left{left:-6px}.handle.right{right:-6px}
+.playhead{position:absolute;z-index:3;top:0;height:100%;width:2px;background:#f5cb64;pointer-events:none}
+.tickrow{display:flex;justify-content:space-between;color:#a6b4c8;font-size:11px;margin:3px 0 12px}
+.form{margin-top:11px;border:1px solid #46576a;border-radius:10px;padding:11px 12px;background:#1d2531}
+.editrow{display:grid;grid-template-columns:minmax(110px,1.2fr) minmax(92px,.75fr) minmax(92px,.75fr) minmax(150px,1.3fr) minmax(150px,1.3fr);gap:9px;align-items:end}
+label{font-size:12px;color:#bdccde;display:block;margin-bottom:4px}input,select{border:1px solid #566274;color:#f4f7fb;background:#262e3c;border-radius:6px;padding:7px 8px;font:inherit;width:100%;min-height:37px}
+.addbar{display:flex;flex-wrap:wrap;gap:7px;align-items:center;margin:10px 0 5px}.hint{color:#b6c9d8;font-size:12px}
+.rows{display:flex;flex-wrap:wrap;gap:7px;margin-top:10px}.chip{padding:5px 9px;border-radius:7px;border:1px solid #415363;font-size:12px;color:#d4e7fa;background:#1c2734}.chip.selected{border-color:#87d0ff;background:#194d75}
+.status{font-size:12px;min-height:20px;color:#a2d8fd;margin-top:8px}.status.warn{color:#ffd27b}.savebar{display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;margin-top:12px;padding-top:10px;border-top:1px solid #39485a}
+@media(max-width:760px){.editrow{grid-template-columns:repeat(2,minmax(0,1fr))}.editrow .titlefield{grid-column:1 / -1}.wrap{padding:11px}.strip{height:49px} }
+</style></head>
+<body><div class="wrap">
+  <div class="top"><h3>🎬 拖曳影片區間，套用 RULA 作業條件</h3><span id="modeBadge" class="note"></span></div>
+  <div class="video-container"><video id="vid" controls playsinline preload="metadata" style="display:none"></video><img id="still" class="still" alt="影片畫面預覽"><div class="video-fallback" id="fallback" style="display:none">影片無法直接嵌入，仍可使用下方縮圖選擇區間。<br>可在上方 Streamlit 影片播放器播放原始影片。</div></div>
+  <div class="controls"><div class="buttons"><button type="button" id="play">▶ 播放／暫停</button><button type="button" id="seekBack">−1 秒</button><button type="button" id="seekNext">＋1 秒</button></div><span class="time" id="timeDisplay">0.0 / 0.0 秒</span></div>
+  <div class="strip" id="strip" aria-label="影片縮圖預覽時間軸"></div>
+  <div class="track" id="track" aria-label="可拖曳區間起點與終點"></div>
+  <div class="tickrow"><span>0 秒</span><span id="middleTick"></span><span id="endTick">0 秒</span></div>
+  <div class="addbar"><button type="button" id="add" class="primary">＋ 新增區間（兩個端點）</button><button type="button" id="addByClick">✚ 點兩下選起點與終點</button><button type="button" id="remove" class="danger">刪除選取區間</button><span id="countLabel" class="hint"></span></div>
+  <div class="hint">在彩色區間中拖曳可移動整段；拖曳左右白色把手可調整<strong>起點／終點</strong>。新增區間可以重複操作，不需要先指定總數。</div>
+  <div id="editor" class="form" style="display:none"><div class="editrow">
+    <div class="titlefield"><label for="title">區間名稱</label><input id="title" type="text" maxlength="40" placeholder="例如：搬運重物"></div>
+    <div><label for="start">開始（秒）</label><input id="start" type="number" min="0" step="0.1"></div>
+    <div><label for="end">結束（秒）</label><input id="end" type="number" min="0" step="0.1"></div>
+    <div><label for="muscle">肌肉使用</label><select id="muscle"><option value="0">0 分</option><option value="1">+1 分</option></select></div>
+    <div><label for="force">負重／施力</label><select id="force"><option value="0">0 分</option><option value="1">1 分</option><option value="2">2 分</option><option value="3">3 分</option></select></div>
+  </div></div>
+  <div class="rows" id="rows"></div><div class="status" id="status" role="status"></div>
+  <div class="savebar"><span class="note">空白時段使用你在上方填的預設肌肉／負重分數。區間不能互相重疊。</span><button type="button" id="save" class="primary">✓ 儲存全部區間並套用</button></div>
+</div>
+<script>
+(function(){
+  'use strict';
+  const $=id=>document.getElementById(id);
+  let duration=1, videoSignature='', rows=[], selected=null, seeking=false, drag=null, addClicks=0, clickA=null, playhead=0, thumbs=[], videoAvailable=false, savedSnapshot='', externalSnapshot='';
+  const LIMIT=24, MIN_SIZE=0.1;
+  const emit=(type,data={})=>window.parent.postMessage(Object.assign({isStreamlitMessage:true,type},data),'*');
+  const componentHeight=()=>emit('streamlit:setFrameHeight',{height:document.documentElement.scrollHeight+12});
+  const clamp=(v,lo,hi)=>Math.min(hi,Math.max(lo,v));
+  const round=v=>Math.round(v*100)/100;
+  const fmt=v=>Number(v).toFixed(2);
+  const safeDuration=()=>Math.max(duration,0.1);
+  const current=()=>rows.find(r=>r.id===selected);
+  const nextId=()=>rows.reduce((a,r)=>Math.max(a,r.id),0)+1;
+  function position(e, target){const r=target.getBoundingClientRect();return round(clamp((e.clientX-r.left)/Math.max(r.width,1),0,1)*duration)}
+  function setStatus(text, warn=false){$('status').textContent=text;$('status').classList.toggle('warn',warn)}
+  function seek(t){playhead=clamp(t,0,duration);const v=$('vid');if(videoAvailable){try{v.currentTime=playhead}catch(e){}}renderPlayhead();renderStill();}
+  function renderStill(){if(videoAvailable) return; const img=$('still');if(!thumbs.length){img.style.display='none';return;}const idx=clamp(Math.floor((playhead/duration)*thumbs.length),0,thumbs.length-1);img.src='data:image/jpeg;base64,'+thumbs[idx];img.style.display='block'}
+  function renderPlayhead(){
+    $('timeDisplay').textContent=fmt(playhead)+' / '+fmt(duration)+' 秒';
+    document.querySelectorAll('.playhead').forEach(x=>x.style.left=(100*playhead/safeDuration())+'%');
+  }
+  function createDiv(className){const d=document.createElement('div');d.className=className;return d}
+  function renderTimeline(){
+    const strip=$('strip');strip.replaceChildren(); for(const base64 of thumbs){const img=document.createElement('img');img.src='data:image/jpeg;base64,'+base64;img.alt='預覽影格';strip.appendChild(img)}
+    const hp=createDiv('playhead');strip.appendChild(hp);
+    $('endTick').textContent=fmt(duration)+' 秒';$('middleTick').textContent=fmt(duration/2)+' 秒';
+    const track=$('track');track.replaceChildren();
+    for(const r of rows){
+      const bar=createDiv('segment'+(r.id===selected?' selected':''));bar.dataset.id=String(r.id);
+      bar.style.left=(r.start/safeDuration()*100)+'%';bar.style.width=((r.end-r.start)/safeDuration()*100)+'%';bar.title=r.title+'｜'+fmt(r.start)+'～'+fmt(r.end)+'秒';
+      const l=createDiv('handle left'),rr=createDiv('handle right');l.dataset.part='left';rr.dataset.part='right';bar.append(l,rr);track.appendChild(bar);
+    }
+    track.appendChild(createDiv('playhead'));
+    renderPlayhead();renderRows();componentHeight();
+  }
+  function renderRows(){
+    const el=$('rows');el.replaceChildren();
+    for(const r of rows){const b=document.createElement('button');b.type='button';b.className='chip'+(r.id===selected?' selected':'');b.textContent=r.title+' '+fmt(r.start)+'～'+fmt(r.end)+'秒｜肌肉'+r.muscle+'／負重'+r.force;b.onclick=()=>choose(r.id);el.appendChild(b)}
+    $('countLabel').textContent='已設定 '+rows.length+' 組區間（上限 '+LIMIT+' 組）';
+    $('editor').style.display=current()?'block':'none';
+    $('remove').disabled=!current();
+    if(current()){
+      const r=current();$('title').value=r.title;$('start').value=fmt(r.start);$('end').value=fmt(r.end);$('muscle').value=String(r.muscle);$('force').value=String(r.force)
+    }
+  }
+  function choose(id){selected=id;renderTimeline();const r=current();if(r)seek(r.start)}
+  function changeRecord(prop,value){const r=current();if(!r)return;r[prop]=value;renderTimeline();setStatus('已編輯，記得按「儲存全部區間並套用」。')}
+  function overlaps(a,b,exclude){return rows.some(r=>r.id!==exclude && a<r.end-1e-7 && r.start<b-1e-7)}
+  function findFreeSegment(center){
+    const sorted=[...rows].sort((a,b)=>a.start-b.start);let starts=[0,...sorted.map(r=>r.end)];let gaps=[];
+    for(let i=0;i<starts.length;i++){const left=starts[i];const right=i<sorted.length?sorted[i].start:duration;if(right-left>=MIN_SIZE)gaps.push({left,right})}
+    gaps.sort((a,b)=>Math.abs((a.left+a.right)/2-center)-Math.abs((b.left+b.right)/2-center));
+    if(!gaps.length) return null;const g=gaps[0];const size=Math.min(3,Math.max(MIN_SIZE,g.right-g.left));let a=clamp(center-size/2,g.left,g.right-size);return [round(a),round(a+size)];
+  }
+  function addSegment(a,b){
+    if(rows.length>=LIMIT){setStatus('最多 '+LIMIT+' 組，請先移除不需要的區間。',true);return}
+    if(!Number.isFinite(a)||!Number.isFinite(b)||b-a<MIN_SIZE-1e-5||overlaps(a,b)){setStatus('無法新增：時段過短或與現有時段重疊。',true);return}
+    const id=nextId();rows.push({id,start:round(a),end:round(b),title:'時段'+(rows.length+1),muscle:0,force:0});choose(id);setStatus('已新增兩個端點。可在白色把手拖曳，並於下方設定分數。')
+  }
+  $('add').onclick=()=>{const g=findFreeSegment(playhead);if(g)addSegment(...g);else setStatus('沒有足夠空白時間可新增，請調整既有區間。',true)};
+  $('addByClick').onclick=()=>{addClicks=1;clickA=null;setStatus('新增區間：請在下方縮圖或時間軸先點一下「開始」，再點一下「結束」。');$('addByClick').textContent='請點起點，再點終點…'};
+  $('remove').onclick=()=>{if(!current())return;rows=rows.filter(r=>r.id!==selected);selected=rows.length?rows[rows.length-1].id:null;renderTimeline();setStatus('區間已刪除；請儲存以套用。')};
+  function handleTimelineClick(e,t){const p=position(e,t);if(addClicks){if(addClicks===1){clickA=p;addClicks=2;seek(p);setStatus('已選開始 '+fmt(p)+' 秒。請再點一下結束位置。')}else{const a=Math.min(clickA,p),b=Math.max(clickA,p);addClicks=0;$('addByClick').textContent='✚ 點兩下選起點與終點';addSegment(a,b)}}else seek(p)}
+  $('strip').addEventListener('pointerdown',e=>{seeking=!addClicks;handleTimelineClick(e,$('strip'));$('strip').setPointerCapture(e.pointerId)});
+  $('strip').addEventListener('pointermove',e=>{if(seeking&&!addClicks)seek(position(e,$('strip')))});
+  $('strip').addEventListener('pointerup',()=>{seeking=false});
+  $('strip').addEventListener('pointercancel',()=>{seeking=false});
+  $('track').addEventListener('pointerdown',e=>{
+    const bar=e.target.closest('.segment');
+    if(!bar){handleTimelineClick(e,$('track'));return}
+    if(addClicks){handleTimelineClick(e,$('track'));return}
+    const id=Number(bar.dataset.id);selected=id;const r=current();
+    const part=e.target.dataset.part || 'move';drag={id,part,origin:position(e,$('track')),start:r.start,end:r.end};$('track').setPointerCapture(e.pointerId);
+    renderTimeline();e.preventDefault();
+  });
+  $('track').addEventListener('pointermove',e=>{
+    if(!drag)return;const r=rows.find(x=>x.id===drag.id);if(!r)return;const p=position(e,$('track'));const d=p-drag.origin;
+    if(drag.part==='left')r.start=round(clamp(drag.start+d,0,r.end-MIN_SIZE));
+    else if(drag.part==='right')r.end=round(clamp(drag.end+d,r.start+MIN_SIZE,duration));
+    else {const sz=drag.end-drag.start;r.start=round(clamp(drag.start+d,0,duration-sz));r.end=round(r.start+sz)}
+    // Drag can visually overlap another segment; prevent saving until resolved.
+    renderTimeline();e.preventDefault();
+  });
+  function release(){if(drag){drag=null;setStatus('已調整區間。請確認未重疊，再按儲存。')}}
+  $('track').addEventListener('pointerup',release);$('track').addEventListener('pointercancel',release);
+  $('title').addEventListener('change',()=>changeRecord('title',$('title').value.trim().slice(0,40)||'未命名'));
+  for(const prop of ['start','end']){$(prop).addEventListener('change',()=>{const r=current();if(!r)return;const n=Number($(prop).value);if(!Number.isFinite(n)){renderRows();return}
+    const width=r.end-r.start;
+    if(prop==='start'&&n>=0&&n<=duration-MIN_SIZE){r.start=round(n);if(r.end<r.start+MIN_SIZE)r.end=round(Math.min(duration,r.start+Math.max(width,1)));renderTimeline();setStatus('已調整起點，請儲存以套用。')}
+    else if(prop==='end'&&n<=duration&&n>=MIN_SIZE){r.end=round(n);if(r.start>r.end-MIN_SIZE)r.start=round(Math.max(0,r.end-Math.max(width,1)));renderTimeline();setStatus('已調整終點，請儲存以套用。')}
+    else{renderRows();setStatus('秒數超出影片長度，請重新輸入。',true)}
+  })}
+  for(const prop of ['muscle','force'])$(prop).addEventListener('change',()=>changeRecord(prop,Number($(prop).value)));
+  $('save').onclick=()=>{
+    const ordered=[...rows].sort((a,b)=>a.start-b.start);
+    for(let i=0;i<ordered.length;i++){const r=ordered[i];if(!(Number.isFinite(r.start)&&Number.isFinite(r.end)&&r.start>=0&&r.end<=duration+0.001&&r.end-r.start>=MIN_SIZE-0.001)){setStatus('區間「'+r.title+'」開始／結束時間不正確。',true);return}
+      if(i>0&&ordered[i-1].end>r.start+0.00001){setStatus('區間「'+ordered[i-1].title+'」與「'+r.title+'」重疊，請拖曳調整。',true);return}}
+    const normalized=ordered.map(r=>({title:r.title,start:round(r.start),end:round(r.end),muscle:r.muscle,force:r.force}));
+    savedSnapshot=JSON.stringify(normalized);
+    emit('streamlit:setComponentValue',{value:{segments:normalized,signature:videoSignature,revision:Date.now()},dataType:'json'});
+    setStatus('已送出區間設定，系統會重新整理並套用到 RULA 分析。');
+  };
+  $('play').onclick=()=>{const v=$('vid');if(!videoAvailable){setStatus('影片過大或格式不支援內嵌，請在上方播放器播放並使用縮圖選區。',true);return}if(v.paused)v.play().catch(()=>setStatus('瀏覽器無法播放這種影片編碼，仍可使用縮圖時間軸。',true));else v.pause()};
+  $('seekBack').onclick=()=>seek(playhead-1);$('seekNext').onclick=()=>seek(playhead+1);
+  function parseSegments(items){return (Array.isArray(items)?items:[]).map((s,i)=>({id:i+1,title:String(s.title||s.name||'時段'+(i+1)),start:Number(s.start),end:Number(s.end),muscle:Number(s.muscle||0),force:Number(s.force||0)})).filter(s=>Number.isFinite(s.start)&&Number.isFinite(s.end)&&s.end>s.start && s.start>=0&&s.end<=duration+.001).slice(0,LIMIT)}
+  function onStreamlitRender(e){if(!e.data||e.data.type!=='streamlit:render')return;const args=e.data.args||{};
+    const sig=String(args.signature||'');
+    if(sig===videoSignature){
+      const fresh=JSON.stringify(args.segments||[]);
+      if(fresh!==externalSnapshot){externalSnapshot=fresh;rows=parseSegments(args.segments);selected=rows.length?rows[0].id:null;renderTimeline();setStatus('已同步最新儲存區間。');}
+      componentHeight();return;
+    }
+    externalSnapshot=JSON.stringify(args.segments||[]);
+    videoSignature=sig;duration=Math.max(Number(args.duration)||1,0.1);thumbs=Array.isArray(args.thumbs)?args.thumbs:[];rows=parseSegments(args.segments);selected=rows.length?rows[0].id:null;playhead=0;
+    const b64=String(args.video_b64||'');videoAvailable=Boolean(b64);
+    $('modeBadge').textContent=videoAvailable?'可直接播放影片':'縮圖預覽＋外部影片播放器';
+    $('vid').pause();$('vid').removeAttribute('src');$('vid').load();
+    if(videoAvailable){$('vid').style.display='block';$('still').style.display='none';$('fallback').style.display='none';
+      $('vid').src='data:'+String(args.mime||'video/mp4')+';base64,'+b64;
+    }else{$('vid').style.display='none';$('fallback').style.display=thumbs.length?'none':'block';renderStill()}
+    renderTimeline();setStatus('已載入。可新增任意多個不重疊區間，最後按儲存套用。');componentHeight();
+  }
+  $('vid').addEventListener('timeupdate',()=>{if(videoAvailable){playhead=clamp($('vid').currentTime,0,duration);renderPlayhead()}});
+  $('vid').addEventListener('error',()=>{videoAvailable=false;$('vid').style.display='none';$('fallback').style.display=thumbs.length?'none':'block';renderStill();setStatus('此影片編碼不支援內嵌播放，請使用上方影片播放器；縮圖拖曳功能照常可用。',true)});
+  $('vid').addEventListener('loadedmetadata',componentHeight);
+  window.addEventListener('message',onStreamlitRender);
+  emit('streamlit:componentReady',{apiVersion:1});
+  if(typeof ResizeObserver!=='undefined'){new ResizeObserver(componentHeight).observe(document.querySelector('.wrap'));}
+  window.addEventListener('load',()=>{componentHeight();setTimeout(componentHeight,500)});
+})();
+</script></body></html>
