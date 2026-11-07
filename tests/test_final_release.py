@@ -70,7 +70,7 @@ class FinalRelease(unittest.TestCase):
         with zipfile.ZipFile(io.BytesIO(out)) as z:
             names=set(z.namelist())
             self.assertIn('Original/keep.txt',names)
-            self.assertNotIn('結案驗收/驗收清單.csv',names)
+            self.assertIn('結案驗收/驗收清單.csv',names)
             self.assertIn('評估結果/作業條件確認.csv',names)
             self.assertIn('複核後結果/外側工作逐筆判定與影響.csv',names)
             work=pd.read_csv(io.BytesIO(z.read('評估結果/作業條件確認.csv')))
