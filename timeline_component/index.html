@@ -52,7 +52,7 @@ label{font-size:12px;color:#bdccde;display:block;margin-bottom:4px}input,select{
 (function(){
   'use strict';
   const $=id=>document.getElementById(id);
-  let duration=1, videoSignature='', rows=[], selected=null, seeking=false, drag=null, addClicks=0, clickA=null, playhead=0, thumbs=[], videoAvailable=false, savedSnapshot='', externalSnapshot='';
+  let duration=1, videoSignature='', rows=[], selected=null, seeking=false, drag=null, addClicks=0, clickA=null, playhead=0, thumbs=[], videoAvailable=false, savedSnapshot='';
   const LIMIT=24, MIN_SIZE=0.1;
   const emit=(type,data={})=>window.parent.postMessage(Object.assign({isStreamlitMessage:true,type},data),'*');
   const componentHeight=()=>emit('streamlit:setFrameHeight',{height:document.documentElement.scrollHeight+12});
@@ -156,12 +156,7 @@ label{font-size:12px;color:#bdccde;display:block;margin-bottom:4px}input,select{
   function parseSegments(items){return (Array.isArray(items)?items:[]).map((s,i)=>({id:i+1,title:String(s.title||s.name||'時段'+(i+1)),start:Number(s.start),end:Number(s.end),muscle:Number(s.muscle||0),force:Number(s.force||0)})).filter(s=>Number.isFinite(s.start)&&Number.isFinite(s.end)&&s.end>s.start && s.start>=0&&s.end<=duration+.001).slice(0,LIMIT)}
   function onStreamlitRender(e){if(!e.data||e.data.type!=='streamlit:render')return;const args=e.data.args||{};
     const sig=String(args.signature||'');
-    if(sig===videoSignature){
-      const fresh=JSON.stringify(args.segments||[]);
-      if(fresh!==externalSnapshot){externalSnapshot=fresh;rows=parseSegments(args.segments);selected=rows.length?rows[0].id:null;renderTimeline();setStatus('已同步最新儲存區間。');}
-      componentHeight();return;
-    }
-    externalSnapshot=JSON.stringify(args.segments||[]);
+    if(sig===videoSignature)return;
     videoSignature=sig;duration=Math.max(Number(args.duration)||1,0.1);thumbs=Array.isArray(args.thumbs)?args.thumbs:[];rows=parseSegments(args.segments);selected=rows.length?rows[0].id:null;playhead=0;
     const b64=String(args.video_b64||'');videoAvailable=Boolean(b64);
     $('modeBadge').textContent=videoAvailable?'可直接播放影片':'縮圖預覽＋外部影片播放器';
@@ -176,7 +171,6 @@ label{font-size:12px;color:#bdccde;display:block;margin-bottom:4px}input,select{
   $('vid').addEventListener('loadedmetadata',componentHeight);
   window.addEventListener('message',onStreamlitRender);
   emit('streamlit:componentReady',{apiVersion:1});
-  if(typeof ResizeObserver!=='undefined'){new ResizeObserver(componentHeight).observe(document.querySelector('.wrap'));}
   window.addEventListener('load',()=>{componentHeight();setTimeout(componentHeight,500)});
 })();
 </script></body></html>
