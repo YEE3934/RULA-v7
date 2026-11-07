@@ -1,0 +1,5 @@
+2026-10-30
+python -m py_compile 222.py -> PASS
+python -m unittest discover -s tests -p test_*.py -q -> 59 tests OK
+AST parser Python 3.11 -> PASS
+未執行 Streamlit/MediaPipe 原始影片端到端推論；不得視為人工準確率驗證。
